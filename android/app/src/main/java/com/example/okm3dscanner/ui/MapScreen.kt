@@ -5,8 +5,8 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Globe
-import androidx.compose.material.icons.filled.MapPin
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,7 +57,7 @@ fun MapScreen(viewModel: VisualizerViewModel) {
             ) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(Icons.Default.Globe, contentDescription = null, tint = CyberGold, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Filled.Public, contentDescription = null, tint = CyberGold, modifier = Modifier.size(18.dp))
                         Text("نقشه آفلاین جغرافیایی (GIS Map)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                     Text(
@@ -72,13 +72,16 @@ fun MapScreen(viewModel: VisualizerViewModel) {
                         color = CyberGold.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text(
-                            text = "${scan.latitude ?: 35.68}, ${scan.longitude ?: 51.38}",
-                            color = CyberGold,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            Icon(Icons.Filled.Place, contentDescription = null, tint = CyberGold, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "${scan.latitude ?: 35.68}, ${scan.longitude ?: 51.38}",
+                                color = CyberGold,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
