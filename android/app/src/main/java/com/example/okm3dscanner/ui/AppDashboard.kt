@@ -55,7 +55,7 @@ fun AppDashboard(
                 NavigationBarItem(
                     selected = currentTab == "map",
                     onClick = { currentTab = "map" },
-                    icon = { Icon(Icons.Default.Globe, contentDescription = "GIS Map") },
+                    icon = { Icon(Icons.Default.Public, contentDescription = "GIS Map") },
                     label = { Text("نقشه (GIS)", fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = CyberGold,
