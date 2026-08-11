@@ -1,0 +1,6 @@
+{
+  "name": "OKM 3D Ground Scanner & Visualizer",
+  "description": "پیشرفته‌ترین سیستم اسکن سه‌بعدی زمین، رادار عمق‌سنج، حفره‌یابی و تحلیل هوشمند داده‌های ژئوفیزیک با Gemini AI",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
