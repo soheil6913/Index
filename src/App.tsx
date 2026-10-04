@@ -17,7 +17,30 @@ import { AiAnalysisTab } from './components/AiAnalysisTab';
 import { MapTab } from './components/MapTab';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<string>('scan');
+  const [currentTab, setCurrentTab] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam && ['scan', 'visualizer', 'map', 'tracker', 'history', 'ai'].includes(tabParam)) {
+        return tabParam;
+      }
+      if (window.location.hash) {
+        const hash = window.location.hash.replace('#', '');
+        if (['scan', 'visualizer', 'map', 'tracker', 'history', 'ai'].includes(hash)) {
+          return hash;
+        }
+      }
+    }
+    return 'scan';
+  });
+
+  const [isEmbed, setIsEmbed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('embed') === 'true' || params.get('mode') === 'embed';
+    }
+    return false;
+  });
 
   // Connection Manager
   const [connectionState, setConnectionState] = useState<ConnectionMode>('SIMULATOR');
@@ -46,8 +69,38 @@ export default function App() {
 
   // Saved History & Active Viewed Scan in 3D
   const [savedScans, setSavedScans] = useState<ScanRecord[]>(SAMPLE_SCANS);
-  const [viewedScan, setViewedScan] = useState<ScanRecord | null>(SAMPLE_SCANS[0]);
+  const [viewedScan, setViewedScan] = useState<ScanRecord | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const scanId = params.get('scanId');
+      if (scanId) {
+        const found = SAMPLE_SCANS.find((s) => s.id === scanId);
+        if (found) return found;
+      }
+    }
+    return SAMPLE_SCANS[0];
+  });
   const [selectedNodeIndex, setSelectedNodeIndex] = useState<number | null>(null);
+
+  // Listen to postMessage from host (e.g. Android WebView)
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      try {
+        if (!e.data) return;
+        const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (msg.type === 'SET_TAB' && msg.tab) {
+          setCurrentTab(msg.tab);
+        } else if (msg.type === 'LOAD_SCAN' && msg.scan) {
+          setViewedScan(msg.scan);
+          setCurrentTab('visualizer');
+        }
+      } catch {
+        // ignore non-json messages
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   // Audio mute handler
   const handleToggleMute = () => {
@@ -229,6 +282,21 @@ export default function App() {
     setViewedScan(scan);
     setCurrentTab('ai');
   };
+
+  // If embed mode (e.g. from Android WebView or iframe)
+  if (isEmbed) {
+    return (
+      <div className="w-full h-screen bg-slate-950 text-slate-100 flex flex-col font-sans p-2 sm:p-3 overflow-y-auto dir-rtl" dir="rtl">
+        <VisualizerTab
+          viewedScan={viewedScan}
+          onSaveScan={handleSaveScanRecord}
+          onNavigateToAi={() => setCurrentTab('ai')}
+          selectedNodeIndex={selectedNodeIndex}
+          setSelectedNodeIndex={setSelectedNodeIndex}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 dir-rtl" dir="rtl">

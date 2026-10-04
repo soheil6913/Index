@@ -15,7 +15,9 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   FileCode,
-  Maximize2
+  Maximize2,
+  Flame,
+  Activity
 } from 'lucide-react';
 
 interface VisualizerTabProps {
@@ -39,6 +41,8 @@ export const VisualizerTab: React.FC<VisualizerTabProps> = ({
   const [sliceX, setSliceX] = useState<number | null>(null);
   const [sliceY, setSliceY] = useState<number | null>(null);
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
 
   // Save Modal
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -236,25 +240,67 @@ export const VisualizerTab: React.FC<VisualizerTabProps> = ({
               <RotateCcw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
               <span>چرخش خودکار</span>
             </button>
+
+            {/* Magnetic Intensity Heatmap Overlay Toggle */}
+            <button
+              onClick={() => setShowHeatmap(!showHeatmap)}
+              title="نقشه حرارتی شدت میدان مغناطیسی (Magnetic Intensity Heatmap)"
+              className={`px-3 py-1.5 rounded-lg border font-bold transition flex items-center gap-1.5 ${
+                showHeatmap
+                  ? 'bg-gradient-to-r from-orange-500 via-rose-500 to-red-600 border-orange-400 text-white shadow-lg shadow-orange-500/25'
+                  : 'bg-slate-950 border-slate-800 text-slate-300 hover:text-white hover:border-slate-700'
+              }`}
+            >
+              <Flame className={`w-3.5 h-3.5 ${showHeatmap ? 'text-yellow-200 animate-pulse' : 'text-orange-400'}`} />
+              <span>نقشه حرارتی (Heatmap)</span>
+              {showHeatmap && (
+                <span className="w-1.5 h-1.5 rounded-full bg-yellow-300 animate-ping" />
+              )}
+            </button>
+
+            {/* Fullscreen Toggle */}
+            <button
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              title={isFullscreen ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه سه‌بعدی'}
+              className="p-1.5 rounded-lg border border-slate-800 bg-slate-950 text-slate-300 hover:text-white hover:border-amber-400/50 transition flex items-center gap-1"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">{isFullscreen ? 'بستن تمام‌صفحه' : 'تمام‌صفحه'}</span>
+            </button>
           </div>
 
           {/* WebGL 3D Canvas Engine */}
-          <div className="h-[500px] relative">
-            <ThreeVisualizer
-              gridData={viewedScan.gridData}
-              phaseData={viewedScan.phaseData}
-              width={viewedScan.width}
-              length={viewedScan.length}
-              zScale={zScale}
-              renderStyle={renderStyle}
-              colorThreshold={colorThreshold}
-              maxDepthMeters={viewedScan.maxDepthMeters}
-              selectedNodeIndex={selectedNodeIndex}
-              onSelectNode={handleSelectNode}
-              sliceX={sliceX}
-              sliceY={sliceY}
-              autoRotate={autoRotate}
-            />
+          <div className={isFullscreen ? 'fixed inset-0 z-50 p-4 bg-slate-950/95 backdrop-blur-md flex flex-col' : 'h-[520px] relative'}>
+            {isFullscreen && (
+              <div className="flex items-center justify-between pb-3 text-xs text-amber-400 font-bold border-b border-slate-800 mb-2">
+                <span>نمای تمام‌صفحه رادار سه‌بعدی ({viewedScan.name})</span>
+                <button
+                  onClick={() => setIsFullscreen(false)}
+                  className="px-3 py-1 rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition"
+                >
+                  ✕ خروج از تمام‌صفحه
+                </button>
+              </div>
+            )}
+            <div className="flex-1 w-full h-full min-h-0 relative">
+              <ThreeVisualizer
+                gridData={viewedScan.gridData}
+                phaseData={viewedScan.phaseData}
+                width={viewedScan.width}
+                length={viewedScan.length}
+                zScale={zScale}
+                renderStyle={renderStyle}
+                colorThreshold={colorThreshold}
+                maxDepthMeters={viewedScan.maxDepthMeters}
+                selectedNodeIndex={selectedNodeIndex}
+                onSelectNode={handleSelectNode}
+                sliceX={sliceX}
+                sliceY={sliceY}
+                autoRotate={autoRotate}
+                showHeatmap={showHeatmap}
+                onToggleHeatmap={() => setShowHeatmap(!showHeatmap)}
+              />
+            </div>
           </div>
 
           {/* Cross-Section Slicing Tool */}
@@ -399,16 +445,62 @@ export const VisualizerTab: React.FC<VisualizerTabProps> = ({
             )}
           </div>
 
-          {/* Color Spectrum Legend */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
-            <div className="text-xs font-bold text-slate-300">راهنمای طیف رنگ OKM:</div>
-            <div className="h-4 rounded-lg bg-gradient-to-r from-blue-700 via-emerald-500 via-amber-400 to-red-600 border border-slate-700" />
-            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
-              <span className="text-blue-400">حفره/تونل</span>
-              <span className="text-emerald-400">خاک معمولی</span>
-              <span className="text-amber-400">مواد معدنی</span>
-              <span className="text-red-400">فلز/طلا</span>
+          {/* Color Spectrum or Magnetic Heatmap Legend */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                {showHeatmap ? (
+                  <>
+                    <Flame className="w-4 h-4 text-orange-400" />
+                    <span>نقشه حرارتی شدت مغناطیسی (Thermal Heatmap):</span>
+                  </>
+                ) : (
+                  <>
+                    <Layers className="w-4 h-4 text-amber-400" />
+                    <span>راهنمای طیف ژئوفیزیک OKM:</span>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={() => setShowHeatmap(!showHeatmap)}
+                className="text-[10px] text-cyan-400 hover:text-cyan-300 font-bold transition underline"
+              >
+                {showHeatmap ? 'طیف استاندارد OKM' : 'فعال‌سازی هیت‌مپ'}
+              </button>
             </div>
+
+            {showHeatmap ? (
+              <div className="space-y-2.5">
+                {/* 5-stop high-contrast thermal gradient */}
+                <div className="h-5 rounded-lg bg-gradient-to-r from-indigo-800 via-cyan-500 via-emerald-400 via-amber-400 via-orange-500 to-rose-600 border border-slate-700 shadow-inner" />
+                <div className="flex justify-between text-[10px] text-slate-300 font-mono">
+                  <span className="text-indigo-400 font-bold">سرد (&le;250)</span>
+                  <span className="text-cyan-400 font-bold">بستر (400)</span>
+                  <span className="text-amber-400 font-bold">معدنی (650)</span>
+                  <span className="text-rose-400 font-bold">داغ (&gt;800)</span>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 space-y-1 text-[11px] font-mono">
+                  <div className="flex justify-between text-slate-400">
+                    <span>دامنه شدت مغناطیسی:</span>
+                    <span className="text-orange-400 font-bold">{minAdc} - {maxAdc} ADC</span>
+                  </div>
+                  <div className="flex justify-between text-slate-400">
+                    <span>تخمین شیب میدان (&Delta;B):</span>
+                    <span className="text-cyan-400 font-bold">~{((maxAdc - minAdc) * 0.08).toFixed(1)} &mu;T</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="h-4 rounded-lg bg-gradient-to-r from-blue-700 via-emerald-500 via-amber-400 to-red-600 border border-slate-700" />
+                <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+                  <span className="text-blue-400">حفره/تونل</span>
+                  <span className="text-emerald-400">خاک معمولی</span>
+                  <span className="text-amber-400">مواد معدنی</span>
+                  <span className="text-red-400">فلز/طلا</span>
+                </div>
+              </div>
+            )}
           </div>
 
         </div>
