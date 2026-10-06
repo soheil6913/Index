@@ -7,7 +7,7 @@ import android.webkit.WebViewClient
 import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -126,10 +126,10 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
                     modifier = Modifier
                         .fillMaxSize()
                         .pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                nativeYaw = (nativeYaw + dragAmount.x * 0.4f) % 360f
-                                nativePitch = (nativePitch + dragAmount.y * 0.3f).coerceIn(10f, 80f)
+                            detectTransformGestures { _, pan, zoomAmount, _ ->
+                                nativeYaw = (nativeYaw + pan.x * 0.4f) % 360f
+                                nativePitch = (nativePitch + pan.y * 0.3f).coerceIn(10f, 80f)
+                                nativeZoom = (nativeZoom * zoomAmount).coerceIn(0.4f, 3.5f)
                             }
                         }
                 ) {

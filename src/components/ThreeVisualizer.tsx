@@ -192,12 +192,16 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
     panY: 0
   });
 
-  // Touch and Mouse interaction tracking
+  // Unified Multi-Pointer & Touch Interaction Tracking
   const isInteractingRef = useRef(false);
   const interactionModeRef = useRef<'rotate' | 'pan'>('rotate');
   const lastPointerRef = useRef({ x: 0, y: 0 });
-  const touchDistanceRef = useRef<number | null>(null);
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartDistanceRef = useRef<number | null>(null);
+  const pinchStartCameraDistRef = useRef<number>(defaultDistance);
+  const twoFingerCenterRef = useRef<{ x: number; y: number } | null>(null);
   const dragDistanceMovedRef = useRef<number>(0);
+  const velocityRef = useRef<{ yaw: number; pitch: number }>({ yaw: 0, pitch: 0 });
 
   // Update Camera transformation
   const updateCamera = useCallback(() => {
@@ -339,6 +343,18 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
       if (autoRotateRef.current && !isInteractingRef.current) {
         cameraRotationRef.current.yaw += delta * 0.35;
         updateCamera();
+      } else if (!isInteractingRef.current) {
+        // Inertia Damping when gesture ends
+        if (Math.abs(velocityRef.current.yaw) > 0.0001 || Math.abs(velocityRef.current.pitch) > 0.0001) {
+          cameraRotationRef.current.yaw += velocityRef.current.yaw;
+          cameraRotationRef.current.pitch = Math.max(
+            0.02,
+            Math.min(Math.PI / 2 - 0.02, cameraRotationRef.current.pitch + velocityRef.current.pitch)
+          );
+          velocityRef.current.yaw *= 0.88;
+          velocityRef.current.pitch *= 0.88;
+          updateCamera();
+        }
       }
 
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
@@ -362,37 +378,125 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
     dom.addEventListener('webglcontextlost', onContextLost, false);
     dom.addEventListener('webglcontextrestored', onContextRestored, false);
 
-    const onMouseDown = (e: MouseEvent) => {
+    // ==========================================
+    // UNIFIED MULTI-POINTER INTERACTION ENGINE
+    // ==========================================
+    const activePointers = activePointersRef.current;
+
+    const getPointersArray = (): { x: number; y: number }[] => Array.from(activePointers.values());
+
+    const getPointersDistance = () => {
+      const pts = getPointersArray();
+      if (pts.length < 2) return 0;
+      return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    };
+
+    const getPointersCenter = () => {
+      const pts = getPointersArray();
+      if (pts.length < 2) return { x: 0, y: 0 };
+      return {
+        x: (pts[0].x + pts[1].x) / 2,
+        y: (pts[0].y + pts[1].y) / 2
+      };
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== undefined && e.button > 2) return;
+
+      try {
+        (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+      } catch (_) {}
+
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       isInteractingRef.current = true;
-      interactionModeRef.current = e.button === 2 || e.shiftKey ? 'pan' : 'rotate';
-      lastPointerRef.current = { x: e.clientX, y: e.clientY };
       dragDistanceMovedRef.current = 0;
-    };
 
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isInteractingRef.current) return;
-
-      const dx = e.clientX - lastPointerRef.current.x;
-      const dy = e.clientY - lastPointerRef.current.y;
-      dragDistanceMovedRef.current += Math.abs(dx) + Math.abs(dy);
-
-      if (interactionModeRef.current === 'rotate') {
-        cameraRotationRef.current.yaw -= dx * 0.008;
-        cameraRotationRef.current.pitch = Math.max(
-          0.02,
-          Math.min(Math.PI / 2 - 0.02, cameraRotationRef.current.pitch + dy * 0.008)
-        );
-      } else {
-        cameraRotationRef.current.panX -= dx * 0.02;
-        cameraRotationRef.current.panY += dy * 0.02;
+      if (activePointers.size === 1) {
+        interactionModeRef.current = e.button === 2 || e.shiftKey ? 'pan' : 'rotate';
+        lastPointerRef.current = { x: e.clientX, y: e.clientY };
+        pinchStartDistanceRef.current = null;
+        twoFingerCenterRef.current = null;
+        velocityRef.current = { yaw: 0, pitch: 0 };
+      } else if (activePointers.size === 2) {
+        pinchStartDistanceRef.current = getPointersDistance();
+        pinchStartCameraDistRef.current = cameraRotationRef.current.distance;
+        twoFingerCenterRef.current = getPointersCenter();
       }
-
-      lastPointerRef.current = { x: e.clientX, y: e.clientY };
-      updateCamera();
     };
 
-    const onMouseUp = () => {
-      isInteractingRef.current = false;
+    const onPointerMove = (e: PointerEvent) => {
+      if (!activePointers.has(e.pointerId)) return;
+      if (e.cancelable) e.preventDefault();
+
+      const prevPos = activePointers.get(e.pointerId);
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 1 && prevPos) {
+        const dx = e.clientX - prevPos.x;
+        const dy = e.clientY - prevPos.y;
+        dragDistanceMovedRef.current += Math.hypot(dx, dy);
+
+        if (interactionModeRef.current === 'rotate') {
+          const yawDelta = -dx * 0.007;
+          const pitchDelta = dy * 0.007;
+
+          cameraRotationRef.current.yaw += yawDelta;
+          cameraRotationRef.current.pitch = Math.max(
+            0.02,
+            Math.min(Math.PI / 2 - 0.02, cameraRotationRef.current.pitch + pitchDelta)
+          );
+
+          velocityRef.current = { yaw: yawDelta, pitch: pitchDelta };
+        } else {
+          cameraRotationRef.current.panX -= dx * 0.02;
+          cameraRotationRef.current.panY += dy * 0.02;
+        }
+
+        updateCamera();
+      } else if (activePointers.size === 2) {
+        const currentDist = getPointersDistance();
+        const currentCenter = getPointersCenter();
+
+        if (pinchStartDistanceRef.current && pinchStartDistanceRef.current > 0 && currentDist > 0) {
+          const scale = pinchStartDistanceRef.current / currentDist;
+          cameraRotationRef.current.distance = Math.max(
+            2,
+            Math.min(100, pinchStartCameraDistRef.current * scale)
+          );
+        }
+
+        if (twoFingerCenterRef.current) {
+          const cdx = currentCenter.x - twoFingerCenterRef.current.x;
+          const cdy = currentCenter.y - twoFingerCenterRef.current.y;
+          cameraRotationRef.current.panX -= cdx * 0.012;
+          cameraRotationRef.current.panY += cdy * 0.012;
+          twoFingerCenterRef.current = currentCenter;
+        }
+
+        updateCamera();
+      }
+    };
+
+    const onPointerUpOrCancel = (e: PointerEvent) => {
+      try {
+        (e.target as HTMLElement)?.releasePointerCapture?.(e.pointerId);
+      } catch (_) {}
+
+      activePointers.delete(e.pointerId);
+
+      if (activePointers.size === 0) {
+        isInteractingRef.current = false;
+        pinchStartDistanceRef.current = null;
+        twoFingerCenterRef.current = null;
+      } else if (activePointers.size === 1) {
+        const [remainingPt] = getPointersArray();
+        if (remainingPt) {
+          lastPointerRef.current = { x: remainingPt.x, y: remainingPt.y };
+        }
+        pinchStartDistanceRef.current = null;
+        twoFingerCenterRef.current = null;
+        interactionModeRef.current = 'rotate';
+      }
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -409,67 +513,12 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
       e.preventDefault();
     };
 
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 1) {
-        isInteractingRef.current = true;
-        interactionModeRef.current = 'rotate';
-        lastPointerRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        dragDistanceMovedRef.current = 0;
-        touchDistanceRef.current = null;
-      } else if (e.touches.length === 2) {
-        isInteractingRef.current = true;
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        touchDistanceRef.current = Math.sqrt(dx * dx + dy * dy);
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (!isInteractingRef.current) return;
-      e.preventDefault();
-
-      if (e.touches.length === 1 && touchDistanceRef.current === null) {
-        const dx = e.touches[0].clientX - lastPointerRef.current.x;
-        const dy = e.touches[0].clientY - lastPointerRef.current.y;
-        dragDistanceMovedRef.current += Math.abs(dx) + Math.abs(dy);
-
-        cameraRotationRef.current.yaw -= dx * 0.01;
-        cameraRotationRef.current.pitch = Math.max(
-          0.02,
-          Math.min(Math.PI / 2 - 0.02, cameraRotationRef.current.pitch + dy * 0.01)
-        );
-
-        lastPointerRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        updateCamera();
-      } else if (e.touches.length === 2 && touchDistanceRef.current !== null) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        const newDist = Math.sqrt(dx * dx + dy * dy);
-        const distDiff = touchDistanceRef.current - newDist;
-
-        cameraRotationRef.current.distance = Math.max(
-          2,
-          Math.min(100, cameraRotationRef.current.distance + distDiff * 0.05)
-        );
-        touchDistanceRef.current = newDist;
-        updateCamera();
-      }
-    };
-
-    const onTouchEnd = () => {
-      isInteractingRef.current = false;
-      touchDistanceRef.current = null;
-    };
-
-    dom.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    dom.addEventListener('pointerdown', onPointerDown, { passive: false });
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUpOrCancel);
+    window.addEventListener('pointercancel', onPointerUpOrCancel);
     dom.addEventListener('wheel', onWheel, { passive: false });
     dom.addEventListener('contextmenu', onContextMenu);
-
-    dom.addEventListener('touchstart', onTouchStart, { passive: false });
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
-    window.addEventListener('touchend', onTouchEnd);
 
     const handleResize = () => {
       if (!mountRef.current || !rendererRef.current || !cameraRef.current) return;
@@ -494,15 +543,12 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
       dom.removeEventListener('webglcontextlost', onContextLost);
       dom.removeEventListener('webglcontextrestored', onContextRestored);
 
-      dom.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      dom.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUpOrCancel);
+      window.removeEventListener('pointercancel', onPointerUpOrCancel);
       dom.removeEventListener('wheel', onWheel);
       dom.removeEventListener('contextmenu', onContextMenu);
-
-      dom.removeEventListener('touchstart', onTouchStart);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('touchend', onTouchEnd);
 
       if (container.contains(dom)) {
         container.removeChild(dom);

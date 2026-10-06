@@ -11,6 +11,7 @@ import {
   Layers,
   MapPin,
   FileSpreadsheet,
+  FileCode,
   X,
   ArrowUpDown,
   BarChart2,
@@ -22,8 +23,110 @@ import {
   CheckCircle2,
   ArrowRightLeft,
   Scale,
-  Zap
+  Zap,
+  Check
 } from 'lucide-react';
+
+interface HistoryTabProps {
+  scans: ScanRecord[];
+  onLoadScan: (scan: ScanRecord) => void;
+  onDeleteScan: (id: string) => void;
+  onNavigateToAiWithScan: (scan: ScanRecord) => void;
+}
+
+// Download Helper
+export const downloadFile = (filename: string, content: string, mimeType: string) => {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// Export individual scan to JSON
+export const exportScanToJson = (scan: ScanRecord) => {
+  const safeName = scan.name.replace(/[^\w\d_\-]/gi, '_') || 'scan';
+  const fileName = `${safeName}_${scan.id.slice(0, 6)}.json`;
+  const jsonString = JSON.stringify(scan, null, 2);
+  downloadFile(fileName, jsonString, 'application/json;charset=utf-8;');
+};
+
+// Export individual scan to CSV with Metadata Header & 2D Matrix Grid
+export const exportScanToCsv = (scan: ScanRecord) => {
+  const safeName = scan.name.replace(/[^\w\d_\-]/gi, '_') || 'scan';
+  const fileName = `${safeName}_${scan.id.slice(0, 6)}.csv`;
+
+  // Build CSV metadata header
+  let csvContent = `# OKM 3D VISUALIZER GROUND SCAN DATA EXPORT\n`;
+  csvContent += `# Scan Title, "${scan.name.replace(/"/g, '""')}"\n`;
+  csvContent += `# Date, "${scan.date}"\n`;
+  csvContent += `# Grid Dimensions, ${scan.width} Cols x ${scan.length} Rows (${scan.width * scan.length} Total Points)\n`;
+  csvContent += `# Soil Profile, "${scan.soilType}"\n`;
+  csvContent += `# Scan Pattern, "${scan.scanPattern}"\n`;
+  csvContent += `# Sensor Hardware, "${scan.sensorType}"\n`;
+  csvContent += `# Max Depth Estimation, ${scan.maxDepthMeters} meters\n`;
+  if (scan.notes) {
+    csvContent += `# Notes, "${scan.notes.replace(/"/g, '""')}"\n`;
+  }
+  csvContent += `# Export Timestamp, "${new Date().toISOString()}"\n`;
+  csvContent += `\n`;
+
+  // 1. Tabular Column Format
+  csvContent += `Index,X_Col,Y_Row,ADC_Value,Phase_Degrees,Estimated_Depth_m,Target_Classification\n`;
+
+  const totalPoints = scan.width * scan.length;
+  for (let i = 0; i < totalPoints; i++) {
+    const x = (i % scan.width) + 1;
+    const y = Math.floor(i / scan.width) + 1;
+    const adc = scan.gridData[i] ?? 0;
+    const phase = scan.phaseData?.[i] ?? 0;
+    const depth = Number((scan.maxDepthMeters * (1 - adc / 1024)).toFixed(2));
+
+    let classification = 'Soil';
+    if (adc < 250) classification = 'Cavity/Void';
+    else if (adc > 750) classification = 'Precious_Metal/Gold';
+    else if (adc > 550) classification = 'Ferrous/Mineral';
+
+    csvContent += `${i + 1},${x},${y},${adc},${phase},${depth},${classification}\n`;
+  }
+
+  // 2. 2D Signal Matrix Format (Compatible with Golden Software Surfer / Voxler / MATLAB / Python Pandas)
+  csvContent += `\n# 2D ADC SIGNAL INTENSITY MATRIX (Rows = Y, Columns = X)\n`;
+  const xHeaders = Array.from({ length: scan.width }, (_, idx) => `X_${idx + 1}`).join(',');
+  csvContent += `Y_Row,${xHeaders}\n`;
+
+  for (let r = 0; r < scan.length; r++) {
+    const rowValues = [];
+    for (let c = 0; c < scan.width; c++) {
+      const idx = r * scan.width + c;
+      rowValues.push(scan.gridData[idx] ?? 0);
+    }
+    csvContent += `Y_${r + 1},${rowValues.join(',')}\n`;
+  }
+
+  downloadFile(fileName, csvContent, 'text/csv;charset=utf-8;');
+};
+
+// Export entire archive to single JSON bundle
+export const exportAllScansToJson = (scans: ScanRecord[]) => {
+  const fileName = `okm_all_scans_archive_${new Date().toISOString().slice(0, 10)}.json`;
+  const jsonString = JSON.stringify(
+    {
+      app: 'OKM 3D Visualizer Pro',
+      version: '2.5.0',
+      exportedAt: new Date().toISOString(),
+      totalScans: scans.length,
+      scans: scans
+    },
+    null,
+    2
+  );
+  downloadFile(fileName, jsonString, 'application/json;charset=utf-8;');
+};
 
 interface HistoryTabProps {
   scans: ScanRecord[];
@@ -49,6 +152,12 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSoilFilter, setSelectedSoilFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'peak'>('date-desc');
+  const [exportToast, setExportToast] = useState<string | null>(null);
+
+  const triggerToast = (msg: string) => {
+    setExportToast(msg);
+    setTimeout(() => setExportToast(null), 3500);
+  };
 
   // Comparison State
   const [compareScanA, setCompareScanA] = useState<ScanRecord | null>(scans[0] || null);
@@ -166,7 +275,21 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => {
+              if (scans.length === 0) return;
+              exportAllScansToJson(scans);
+              triggerToast(`کامل‌ترین آرشیو (${scans.length} اسکن) به صورت فایل JSON دانلود شد.`);
+            }}
+            disabled={scans.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 font-bold text-xs transition"
+            title="دانلود کامل آرشیو اسکن‌ها به صورت یک فایل JSON جامع"
+          >
+            <Download className="w-3.5 h-3.5 text-cyan-400" />
+            <span>خروجی کل آرشیو</span>
+          </button>
+
           <button
             onClick={() => {
               if (!compareScanA && scans.length > 0) setCompareScanA(scans[0]);
@@ -176,7 +299,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-amber-400/20 transition"
           >
             <GitCompare className="w-4 h-4" />
-            <span>مقایسه پهلو به پهلو (Compare)</span>
+            <span>مقایسه (Compare)</span>
           </button>
 
           <div className="text-xs font-mono text-amber-400 bg-amber-400/10 border border-amber-400/20 px-3 py-2 rounded-xl">
@@ -447,30 +570,59 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center gap-2 pt-3 border-t border-slate-800/80">
-                <button
-                  onClick={() => onLoadScan(scan)}
-                  className="flex-1 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs shadow-md shadow-amber-400/20 transition flex items-center justify-center gap-1.5"
-                >
-                  <Box className="w-4 h-4" />
-                  <span>بارگذاری در ۳بعدی</span>
-                </button>
+              <div className="flex flex-col gap-2 pt-3 border-t border-slate-800/80">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onLoadScan(scan)}
+                    className="flex-1 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs shadow-md shadow-amber-400/20 transition flex items-center justify-center gap-1.5"
+                  >
+                    <Box className="w-4 h-4" />
+                    <span>بارگذاری در ۳بعدی</span>
+                  </button>
 
-                <button
-                  onClick={() => onNavigateToAiWithScan(scan)}
-                  title="تحلیل هوشمند Gemini AI"
-                  className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-amber-400 text-slate-950 font-bold text-xs transition"
-                >
-                  <Sparkles className="w-4 h-4" />
-                </button>
+                  <button
+                    onClick={() => onNavigateToAiWithScan(scan)}
+                    title="تحلیل هوشمند Gemini AI"
+                    className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-amber-400 hover:opacity-90 text-slate-950 font-bold text-xs transition flex items-center gap-1"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </button>
 
-                <button
-                  onClick={() => onDeleteScan(scan.id)}
-                  title="حذف اسکن"
-                  className="p-2.5 rounded-xl bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 border border-slate-700 transition"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                  <button
+                    onClick={() => onDeleteScan(scan.id)}
+                    title="حذف اسکن"
+                    className="p-2.5 rounded-xl bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-400 border border-slate-700 transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* CSV and JSON Data Export Controls */}
+                <div className="flex items-center gap-2 font-mono">
+                  <button
+                    onClick={() => {
+                      exportScanToCsv(scan);
+                      triggerToast(`فایل CSV برای "${scan.name}" با موفقیت ایجاد و دانلود شد.`);
+                    }}
+                    title="دانلود ماتریس داده‌ها به صورت CSV (سازگار با Excel, MATLAB, Surfer, Voxler)"
+                    className="flex-1 py-1.5 px-2.5 rounded-xl bg-slate-950 border border-emerald-500/40 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 font-bold text-xs transition flex items-center justify-center gap-1.5"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>خروجی CSV</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      exportScanToJson(scan);
+                      triggerToast(`فایل JSON برای "${scan.name}" با موفقیت دانلود شد.`);
+                    }}
+                    title="دانلود ساختار کامل پروژه به صورت JSON برای تحلیل نرم‌افزاری"
+                    className="flex-1 py-1.5 px-2.5 rounded-xl bg-slate-950 border border-cyan-500/40 hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-300 font-bold text-xs transition flex items-center justify-center gap-1.5"
+                  >
+                    <FileCode className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>خروجی JSON</span>
+                  </button>
+                </div>
               </div>
 
             </div>
@@ -742,26 +894,69 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
             {/* Modal Footer */}
             <div className="bg-slate-950 border-t border-slate-800 p-4 flex items-center justify-between shrink-0">
-              <button
-                onClick={() => {
-                  setIsComparisonOpen(false);
-                  onNavigateToAiWithScan(peakB > peakA ? compareScanB : compareScanA);
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-amber-400 text-slate-950 font-bold text-xs transition shadow-lg"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>تحلیل پیشرفته با Gemini AI برای اسکن برتر</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    exportScanToCsv(compareScanA);
+                    triggerToast(`فایل CSV برای "${compareScanA.name}" دانلود شد.`);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-400 font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-500/20 transition"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>CSV A</span>
+                </button>
+                <button
+                  onClick={() => {
+                    exportScanToCsv(compareScanB);
+                    triggerToast(`فایل CSV برای "${compareScanB.name}" دانلود شد.`);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-900 border border-emerald-500/40 text-emerald-400 font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-500/20 transition"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>CSV B</span>
+                </button>
+              </div>
 
-              <button
-                onClick={() => setIsComparisonOpen(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs transition"
-              >
-                بستن مقایسه
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setIsComparisonOpen(false);
+                    onNavigateToAiWithScan(peakB > peakA ? compareScanB : compareScanA);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-amber-400 text-slate-950 font-bold text-xs transition shadow-lg"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>تحلیل پیشرفته با Gemini AI</span>
+                </button>
+
+                <button
+                  onClick={() => setIsComparisonOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs transition"
+                >
+                  بستن مقایسه
+                </button>
+              </div>
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* Floating Export Toast Notification */}
+      {exportToast && (
+        <div className="fixed bottom-6 right-6 z-[999] bg-slate-900/95 border border-emerald-500/60 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in backdrop-blur-md">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+          <div className="text-xs font-medium">
+            {exportToast}
+          </div>
+          <button
+            onClick={() => setExportToast(null)}
+            className="text-slate-400 hover:text-white transition p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
