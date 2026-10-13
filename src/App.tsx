@@ -391,7 +391,14 @@ export default function App() {
         )}
 
         {currentTab === 'ai' && (
-          <AiAnalysisTab viewedScan={viewedScan} />
+          <AiAnalysisTab
+            viewedScan={viewedScan}
+            scans={savedScans}
+            onLoadScan={(scan) => {
+              setViewedScan(scan);
+              setCurrentTab('visualizer');
+            }}
+          />
         )}
 
       </main>

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ScanRecord, RenderStyle, Anomaly } from '../types';
-import { ThreeVisualizer } from './ThreeVisualizer';
+import { ThreeVisualizer, DepthSliceMode, HeatmapPalette } from './ThreeVisualizer';
 import {
   Box,
   Layers,
@@ -17,7 +17,9 @@ import {
   FileCode,
   Maximize2,
   Flame,
-  Activity
+  Activity,
+  Play,
+  Pause
 } from 'lucide-react';
 
 interface VisualizerTabProps {
@@ -43,6 +45,60 @@ export const VisualizerTab: React.FC<VisualizerTabProps> = ({
   const [autoRotate, setAutoRotate] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
+  const [heatmapOpacity, setHeatmapOpacity] = useState<number>(0.72);
+  const [heatmapPalette, setHeatmapPalette] = useState<HeatmapPalette>('spectral');
+
+  // Subsurface Depth Slicing State
+  const [sliceZ, setSliceZ] = useState<number | null>(null);
+  const [sliceZMode, setSliceZMode] = useState<DepthSliceMode>('cut');
+  const [depthRange, setDepthRange] = useState<[number, number]>([0.5, 2.5]);
+  const [showDepthPlane, setShowDepthPlane] = useState<boolean>(true);
+  const [isDepthSweeping, setIsDepthSweeping] = useState<boolean>(false);
+
+  // Auto Depth Sweep Playback Effect
+  useEffect(() => {
+    let interval: any;
+    if (isDepthSweeping && viewedScan) {
+      interval = setInterval(() => {
+        setSliceZ((prevZ) => {
+          const maxD = viewedScan.maxDepthMeters || 3.5;
+          const current = prevZ === null ? 0 : prevZ;
+          const next = current + 0.1;
+          if (next > maxD) return 0;
+          return parseFloat(next.toFixed(1));
+        });
+      }, 220);
+    }
+    return () => clearInterval(interval);
+  }, [isDepthSweeping, viewedScan]);
+
+  // Real-time Anomaly Count at Current Depth Slice
+  const activeAnomaliesAtDepth = useMemo(() => {
+    if (!viewedScan) return 0;
+    if (sliceZ === null && depthRange === null) return 0;
+
+    let count = 0;
+    const maxD = viewedScan.maxDepthMeters || 3.5;
+
+    viewedScan.gridData.forEach((adc) => {
+      const ptDepth = maxD * (1 - Math.min(Math.max(adc, 0), 1024) / 1024);
+      let matches = false;
+
+      if (sliceZMode === 'cut' && sliceZ !== null) {
+        matches = ptDepth >= sliceZ;
+      } else if (sliceZMode === 'plane' && sliceZ !== null) {
+        matches = Math.abs(ptDepth - sliceZ) <= 0.45;
+      } else if (sliceZMode === 'band' && depthRange !== null) {
+        matches = ptDepth >= depthRange[0] && ptDepth <= depthRange[1];
+      }
+
+      if (matches && (adc > 650 || adc < 250)) {
+        count++;
+      }
+    });
+
+    return count;
+  }, [viewedScan, sliceZ, sliceZMode, depthRange]);
 
   // Save Modal
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -269,6 +325,73 @@ export const VisualizerTab: React.FC<VisualizerTabProps> = ({
             </button>
           </div>
 
+          {/* Heatmap Intensity & Color Scaling Configuration Panel */}
+          {showHeatmap && (
+            <div className="bg-slate-900/90 border border-orange-500/30 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-lg font-mono">
+              {/* Heatmap Palette Selector */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-orange-400 font-bold flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5" />
+                  <span>پالت D3:</span>
+                </span>
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
+                  {[
+                    { id: 'spectral', label: 'Spectral' },
+                    { id: 'turbo', label: 'Turbo' },
+                    { id: 'inferno', label: 'Inferno' },
+                    { id: 'jet', label: 'Jet' }
+                  ].map((pal) => (
+                    <button
+                      key={pal.id}
+                      onClick={() => setHeatmapPalette(pal.id as HeatmapPalette)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition ${
+                        heatmapPalette === pal.id
+                          ? 'bg-gradient-to-r from-orange-500 to-amber-400 text-slate-950 shadow'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {pal.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Semi-transparent Opacity Slider */}
+              <div className="flex items-center gap-2 text-slate-300">
+                <span className="text-amber-400 font-bold">شفافیت پوشش:</span>
+                <input
+                  type="range"
+                  min="0.15"
+                  max="1.0"
+                  step="0.05"
+                  value={heatmapOpacity}
+                  onChange={(e) => setHeatmapOpacity(parseFloat(e.target.value))}
+                  className="w-24 accent-orange-400 cursor-pointer"
+                />
+                <span className="w-10 font-bold text-amber-400">{Math.round(heatmapOpacity * 100)}%</span>
+              </div>
+
+              {/* D3 Gradient Bar Legend */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <span className="text-[10px] text-slate-400">طیف شدت:</span>
+                <div
+                  className="flex-1 sm:w-36 h-3.5 rounded-lg overflow-hidden border border-slate-700 relative"
+                  style={{
+                    background:
+                      heatmapPalette === 'inferno'
+                        ? 'linear-gradient(to right, #000004, #57106e, #bb3754, #f98e09, #fcffa4)'
+                        : heatmapPalette === 'turbo'
+                        ? 'linear-gradient(to right, #30123b, #1ae4b6, #a2fc3c, #e34309)'
+                        : heatmapPalette === 'jet'
+                        ? 'linear-gradient(to right, #000080, #00ffff, #ffff00, #ff0000, #800000)'
+                        : 'linear-gradient(to right, #1e1b4b, #06b6d4, #10b981, #f59e0b, #ef4444, #ffffff)'
+                  }}
+                />
+                <span className="text-[10px] text-red-400 font-bold">طلا/فلز</span>
+              </div>
+            </div>
+          )}
+
           {/* WebGL 3D Canvas Engine */}
           <div className={isFullscreen ? 'fixed inset-0 z-50 p-4 bg-slate-950/95 backdrop-blur-md flex flex-col' : 'h-[520px] relative'}>
             {isFullscreen && (
@@ -282,7 +405,191 @@ export const VisualizerTab: React.FC<VisualizerTabProps> = ({
                 </button>
               </div>
             )}
-            <div className="flex-1 w-full h-full min-h-0 relative">
+            <div className="flex-1 w-full h-full min-h-0 relative rounded-2xl overflow-hidden">
+              {/* Interactive Floating Subsurface Depth Slicing Overlay */}
+              <div className="absolute top-3 right-3 z-30 max-w-xs sm:max-w-sm bg-slate-900/90 border border-slate-700/80 rounded-2xl p-3 shadow-2xl backdrop-blur-md space-y-2.5 dir-rtl text-xs transition-all pointer-events-auto">
+                {/* Overlay Header */}
+                <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-1.5 font-bold text-cyan-400">
+                    <Sliders className="w-4 h-4 text-amber-400" />
+                    <span>برش عمقی زیرسطحی (Depth Slice)</span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {/* Auto Sweep Play/Pause Button */}
+                    <button
+                      onClick={() => {
+                        if (sliceZ === null) setSliceZ(0);
+                        setIsDepthSweeping(!isDepthSweeping);
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition ${
+                        isDepthSweeping
+                          ? 'bg-amber-400 text-slate-950 animate-pulse'
+                          : 'bg-slate-800 text-slate-300 hover:text-white'
+                      }`}
+                      title="پیمایش خودکار عمق (Auto Depth Sweep)"
+                    >
+                      {isDepthSweeping ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                      <span>{isDepthSweeping ? 'توقف' : 'پیمایش'}</span>
+                    </button>
+
+                    {/* Toggle Depth Slicing On/Off */}
+                    <button
+                      onClick={() => {
+                        if (sliceZ === null) {
+                          setSliceZ(1.0);
+                        } else {
+                          setSliceZ(null);
+                          setIsDepthSweeping(false);
+                        }
+                      }}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition ${
+                        sliceZ !== null
+                          ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 shadow'
+                          : 'bg-slate-800 border-slate-700 text-slate-400'
+                      }`}
+                    >
+                      {sliceZ !== null ? 'فعال' : 'خاموش'}
+                    </button>
+                  </div>
+                </div>
+
+                {sliceZ !== null ? (
+                  <div className="space-y-2.5">
+                    {/* Mode Selector Chips */}
+                    <div className="flex items-center justify-between gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-[10px]">
+                      {[
+                        { id: 'cut', label: 'برش از سطح (Cut)' },
+                        { id: 'plane', label: 'تک مقطع (Plane)' },
+                        { id: 'band', label: 'بازه عمق (Band)' }
+                      ].map((m) => (
+                        <button
+                          key={m.id}
+                          onClick={() => setSliceZMode(m.id as DepthSliceMode)}
+                          className={`flex-1 py-1 rounded-lg font-bold transition text-center ${
+                            sliceZMode === m.id
+                              ? 'bg-gradient-to-r from-amber-400 to-cyan-400 text-slate-950 shadow'
+                              : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Main Depth Range / Slider Input */}
+                    {sliceZMode !== 'band' ? (
+                      <div className="space-y-1 font-mono">
+                        <div className="flex items-center justify-between text-slate-300 text-[11px]">
+                          <span className="flex items-center gap-1">
+                            <Layers className="w-3.5 h-3.5 text-amber-400" />
+                            <span>عمق مقطع برش:</span>
+                          </span>
+                          <span className="text-cyan-400 font-extrabold text-sm">{sliceZ.toFixed(1)} متر</span>
+                        </div>
+
+                        <div className="relative pt-1">
+                          <input
+                            type="range"
+                            min="0.0"
+                            max={viewedScan.maxDepthMeters || 3.5}
+                            step="0.1"
+                            value={sliceZ}
+                            onChange={(e) => {
+                              setIsDepthSweeping(false);
+                              setSliceZ(parseFloat(e.target.value));
+                            }}
+                            className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-950 rounded-lg"
+                          />
+                          {/* Meter Ticks */}
+                          <div className="flex justify-between text-[9px] text-slate-500 font-mono mt-0.5">
+                            <span>0m (سطح)</span>
+                            <span>{((viewedScan.maxDepthMeters || 3.5) / 2).toFixed(1)}m</span>
+                            <span>{viewedScan.maxDepthMeters || 3.5}m (بستر)</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Depth Band Dual Range Filter */
+                      <div className="space-y-1.5 font-mono text-[11px]">
+                        <div className="flex justify-between text-slate-300">
+                          <span>بازه عمقی انتخاب‌شده:</span>
+                          <span className="text-amber-400 font-bold">
+                            {depthRange[0].toFixed(1)}m تا {depthRange[1].toFixed(1)}m
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-slate-400">حداقل عمق:</label>
+                            <input
+                              type="range"
+                              min="0.0"
+                              max={depthRange[1] - 0.1}
+                              step="0.1"
+                              value={depthRange[0]}
+                              onChange={(e) => setDepthRange([parseFloat(e.target.value), depthRange[1]])}
+                              className="w-full accent-amber-400 cursor-pointer"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-400">حداکثر عمق:</label>
+                            <input
+                              type="range"
+                              min={depthRange[0] + 0.1}
+                              max={viewedScan.maxDepthMeters || 3.5}
+                              step="0.1"
+                              value={depthRange[1]}
+                              onChange={(e) => setDepthRange([depthRange[0], parseFloat(e.target.value)])}
+                              className="w-full accent-cyan-400 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quick Depth Presets */}
+                    <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+                      <span className="text-[10px] text-slate-400 shrink-0">میانبر:</span>
+                      {[0.5, 1.0, 1.5, 2.0, 2.5, 3.0].map((d) => (
+                        <button
+                          key={d}
+                          onClick={() => {
+                            setIsDepthSweeping(false);
+                            setSliceZ(d);
+                          }}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono shrink-0 transition ${
+                            sliceZ === d
+                              ? 'bg-cyan-400 text-slate-950 font-bold'
+                              : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
+                          }`}
+                        >
+                          {d}m
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Real-Time Anomaly Count & Laser Plane Indicator */}
+                    <div className="flex items-center justify-between bg-slate-950 p-1.5 rounded-xl border border-slate-800 text-[11px]">
+                      <div className="flex items-center gap-1.5 text-slate-300">
+                        <Activity className="w-3.5 h-3.5 text-amber-400" />
+                        <span>سیگنال‌های فعال در این عمق:</span>
+                      </div>
+                      <span className={`font-bold font-mono px-2 py-0.5 rounded-lg ${
+                        activeAnomaliesAtDepth > 0
+                          ? 'bg-amber-400/20 text-amber-300 border border-amber-400/30'
+                          : 'bg-slate-900 text-slate-500'
+                      }`}>
+                        {activeAnomaliesAtDepth} هدف
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 text-center py-1">
+                    برای فعال‌سازی اسلایدر برش عمقی ۳بعدی روی «فعال» کلیک کنید.
+                  </div>
+                )}
+              </div>
+
               <ThreeVisualizer
                 gridData={viewedScan.gridData}
                 phaseData={viewedScan.phaseData}
@@ -296,8 +603,14 @@ export const VisualizerTab: React.FC<VisualizerTabProps> = ({
                 onSelectNode={handleSelectNode}
                 sliceX={sliceX}
                 sliceY={sliceY}
+                sliceZ={sliceZ}
+                sliceZMode={sliceZMode}
+                depthRange={depthRange}
+                showDepthPlane={showDepthPlane}
                 autoRotate={autoRotate}
                 showHeatmap={showHeatmap}
+                heatmapOpacity={heatmapOpacity}
+                heatmapPalette={heatmapPalette}
                 onToggleHeatmap={() => setShowHeatmap(!showHeatmap)}
               />
             </div>

@@ -59,3 +59,26 @@ export interface AiAnalysisResult {
   recommendations: string[];
   geophysicalDataInterpretation: string;
 }
+
+export interface RecurringSoilPattern {
+  patternTitle: string;
+  type: 'soil_baseline' | 'mineralization' | 'moisture_layer' | 'persistent_anomaly';
+  description: string;
+  affectedScansCount: number;
+  consistencyConfidence: number; // 0 - 100
+}
+
+export interface UniqueScanAnomaly {
+  scanId: string;
+  scanName: string;
+  anomalyDescription: string;
+  significance: 'high' | 'medium' | 'low';
+}
+
+export interface MultiScanComparisonResult {
+  summary: string;
+  soilCorrelationIndex: number; // 0 - 100%
+  recurringPatterns: RecurringSoilPattern[];
+  uniqueAnomaliesPerScan: UniqueScanAnomaly[];
+  operatorRecommendations: string[];
+}

@@ -47,7 +47,19 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDirs("src/main/assets")
+        }
+    }
 }
+
+// Hook Vite React asset bundling task into Android preBuild lifecycle
+afterEvaluate {
+    tasks.findByName("preBuild")?.dependsOn(":copyWebAssets")
+}
+
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")

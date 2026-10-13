@@ -16,6 +16,9 @@ import {
   Activity
 } from 'lucide-react';
 
+export type DepthSliceMode = 'cut' | 'band' | 'plane';
+export type HeatmapPalette = 'spectral' | 'inferno' | 'turbo' | 'jet';
+
 interface ThreeVisualizerProps {
   gridData: number[];
   phaseData: number[];
@@ -29,8 +32,14 @@ interface ThreeVisualizerProps {
   onSelectNode: (idx: number, x: number, y: number, adc: number, phase: number, depth: number) => void;
   sliceX?: number | null; // 0 to width - 1
   sliceY?: number | null; // 0 to length - 1
+  sliceZ?: number | null; // depth in meters (0.0 to maxDepthMeters)
+  sliceZMode?: DepthSliceMode; // 'cut' | 'band' | 'plane'
+  depthRange?: [number, number] | null; // [minDepth, maxDepth] in meters
+  showDepthPlane?: boolean; // show glowing 3D depth laser plane
   autoRotate?: boolean;
   showHeatmap?: boolean;
+  heatmapOpacity?: number; // semi-transparent overlay opacity (0.1 to 1.0)
+  heatmapPalette?: HeatmapPalette; // 'spectral' | 'inferno' | 'turbo' | 'jet'
   onToggleHeatmap?: () => void;
 }
 
@@ -77,49 +86,84 @@ export function getOkmSpectrumColor(adc: number, phase: number): THREE.Color {
   return new THREE.Color(r, g, b);
 }
 
-// Convert ADC value (magnetic intensity) to a high-contrast scientific Thermal Heatmap Color Gradient
-export function getMagneticHeatmapColor(adc: number, minAdc: number = 150, maxAdc: number = 950): THREE.Color {
+// Convert ADC value (magnetic intensity) to a high-contrast d3/recharts-style Thermal Heatmap Color Gradient
+export function getD3HeatmapColor(
+  adc: number,
+  minAdc: number = 150,
+  maxAdc: number = 950,
+  palette: HeatmapPalette = 'spectral'
+): THREE.Color {
   const range = Math.max(1, maxAdc - minAdc);
   const t = Math.min(Math.max((adc - minAdc) / range, 0), 1);
 
-  let r = 0;
-  let g = 0;
-  let b = 0;
+  let r = 0, g = 0, b = 0;
 
-  // 5-stop high-contrast thermal gradient: Deep Indigo -> Cyan -> Emerald -> Vivid Yellow -> Red-Orange -> Hot White-Magenta
-  if (t < 0.2) {
-    // Low magnetic anomaly (Cavity/Tunnel drop)
-    const k = t / 0.2;
-    r = 0.05 * (1 - k);
-    g = 0.15 + 0.65 * k;
-    b = 0.85 + 0.15 * k;
-  } else if (t < 0.45) {
-    // Normal baseline magnetic field
-    const k = (t - 0.2) / 0.25;
-    r = 0.0 + 0.15 * k;
-    g = 0.8 + 0.2 * k;
-    b = 1.0 - 0.9 * k;
-  } else if (t < 0.7) {
-    // Elevated magnetic intensity / Mineralization
-    const k = (t - 0.45) / 0.25;
-    r = 0.15 + 0.85 * k;
-    g = 1.0 - 0.1 * k;
-    b = 0.05 * (1 - k);
-  } else if (t < 0.9) {
-    // Strong Magnetic Field Peak
-    const k = (t - 0.7) / 0.2;
-    r = 1.0;
-    g = 0.9 - 0.75 * k;
-    b = 0.05 * k;
+  if (palette === 'inferno') {
+    if (t < 0.2) {
+      r = 0.05 + t * 0.7; g = 0.01; b = 0.15 + t * 1.5;
+    } else if (t < 0.5) {
+      const k = (t - 0.2) / 0.3;
+      r = 0.19 + k * 0.65; g = 0.01 + k * 0.2; b = 0.45 - k * 0.2;
+    } else if (t < 0.8) {
+      const k = (t - 0.5) / 0.3;
+      r = 0.84 + k * 0.15; g = 0.21 + k * 0.55; b = 0.25 - k * 0.25;
+    } else {
+      const k = (t - 0.8) / 0.2;
+      r = 0.99; g = 0.76 + k * 0.24; b = k * 0.9;
+    }
+  } else if (palette === 'turbo') {
+    if (t < 0.25) {
+      const k = t / 0.25;
+      r = 0.18 + k * 0.02; g = 0.12 + k * 0.8; b = 0.88 + k * 0.12;
+    } else if (t < 0.5) {
+      const k = (t - 0.25) / 0.25;
+      r = 0.2 + k * 0.6; g = 0.92 + k * 0.08; b = 1.0 - k * 0.9;
+    } else if (t < 0.75) {
+      const k = (t - 0.5) / 0.25;
+      r = 0.8 + k * 0.2; g = 1.0 - k * 0.6; b = 0.1 - k * 0.1;
+    } else {
+      const k = (t - 0.75) / 0.25;
+      r = 1.0 - k * 0.3; g = 0.4 - k * 0.35; b = k * 0.2;
+    }
+  } else if (palette === 'jet') {
+    if (t < 0.25) {
+      const k = t / 0.25;
+      r = 0; g = k; b = 1.0;
+    } else if (t < 0.5) {
+      const k = (t - 0.25) / 0.25;
+      r = 0; g = 1.0; b = 1.0 - k;
+    } else if (t < 0.75) {
+      const k = (t - 0.5) / 0.25;
+      r = k; g = 1.0; b = 0;
+    } else {
+      const k = (t - 0.75) / 0.25;
+      r = 1.0; g = 1.0 - k; b = 0;
+    }
   } else {
-    // Critical Peak Anomaly (Super-conductive metal / gold target)
-    const k = (t - 0.9) / 0.1;
-    r = 1.0;
-    g = 0.15 + 0.85 * k;
-    b = 0.1 + 0.9 * k;
+    // Default High-Contrast Spectral Palette (Indigo -> Cyan -> Emerald -> Yellow -> Red -> White)
+    if (t < 0.2) {
+      const k = t / 0.2;
+      r = 0.05 * (1 - k); g = 0.15 + 0.65 * k; b = 0.85 + 0.15 * k;
+    } else if (t < 0.45) {
+      const k = (t - 0.2) / 0.25;
+      r = 0.15 * k; g = 0.8 + 0.2 * k; b = 1.0 - 0.9 * k;
+    } else if (t < 0.7) {
+      const k = (t - 0.45) / 0.25;
+      r = 0.15 + 0.85 * k; g = 1.0 - 0.1 * k; b = 0.05 * (1 - k);
+    } else if (t < 0.9) {
+      const k = (t - 0.7) / 0.2;
+      r = 1.0; g = 0.9 - 0.75 * k; b = 0.05 * k;
+    } else {
+      const k = (t - 0.9) / 0.1;
+      r = 1.0; g = 0.15 + 0.85 * k; b = 0.1 + 0.9 * k;
+    }
   }
 
   return new THREE.Color(r, g, b);
+}
+
+export function getMagneticHeatmapColor(adc: number, minAdc: number = 150, maxAdc: number = 950): THREE.Color {
+  return getD3HeatmapColor(adc, minAdc, maxAdc, 'spectral');
 }
 
 export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
@@ -135,8 +179,14 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
   onSelectNode,
   sliceX = null,
   sliceY = null,
+  sliceZ = null,
+  sliceZMode = 'cut',
+  depthRange = null,
+  showDepthPlane = true,
   autoRotate = false,
   showHeatmap = false,
+  heatmapOpacity = 0.72,
+  heatmapPalette = 'spectral',
   onToggleHeatmap
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -624,6 +674,24 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
       }
     });
 
+    // Helper to check depth slice visibility
+    const isPointDepthVisible = (adc: number): boolean => {
+      if (sliceZ === null && depthRange === null) return true;
+
+      const ptDepth = maxDepthMeters * (1 - Math.min(Math.max(adc, 0), 1024) / 1024);
+
+      if (sliceZMode === 'cut' && sliceZ !== null) {
+        return ptDepth >= sliceZ;
+      }
+      if (sliceZMode === 'plane' && sliceZ !== null) {
+        return Math.abs(ptDepth - sliceZ) <= 0.45;
+      }
+      if (sliceZMode === 'band' && depthRange !== null) {
+        return ptDepth >= depthRange[0] && ptDepth <= depthRange[1];
+      }
+      return true;
+    };
+
     // 2. Build 3D Terrain depending on render style
     if (renderStyle === '3d-mesh' || renderStyle === 'wireframe' || renderStyle === 'contour') {
       const segW = Math.max(1, width - 1);
@@ -649,6 +717,7 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
         let isSliceVisible = true;
         if (sliceX !== null && x !== sliceX) isSliceVisible = false;
         if (sliceY !== null && y !== sliceY) isSliceVisible = false;
+        if (!isPointDepthVisible(adc)) isSliceVisible = false;
 
         if (!isSliceVisible) {
           yHeight = 0;
@@ -656,15 +725,15 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
 
         posAttr.setY(i, yHeight);
 
-        // Color Spectrum (Standard OKM vs Magnetic Heatmap Overlay)
+        // Color Spectrum (Standard OKM Spectrum vs D3 Heatmap Interpolation)
         const color = showHeatmap
-          ? getMagneticHeatmapColor(adc, minAdc, maxAdc)
+          ? getD3HeatmapColor(adc, minAdc, maxAdc, heatmapPalette as HeatmapPalette)
           : getOkmSpectrumColor(adc, phase);
 
         if (isSliceVisible) {
           colors.push(color.r, color.g, color.b);
         } else {
-          colors.push(0.12, 0.15, 0.2);
+          colors.push(0.08, 0.1, 0.15);
         }
       }
 
@@ -691,6 +760,51 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
         const mesh = new THREE.Mesh(geometry, meshMat);
         groundGroup.add(mesh);
 
+        // Semi-transparent D3 Heatmap Intensity Overlay Layer on 3D Model
+        if (showHeatmap) {
+          const overlayGeo = geometry.clone();
+          const overlayColors: number[] = [];
+
+          for (let i = 0; i < count; i++) {
+            const x = i % width;
+            const y = Math.floor(i / width);
+            const idx = y * width + x;
+            const adc = gridData[idx] ?? 380;
+
+            let isSliceVisible = true;
+            if (sliceX !== null && x !== sliceX) isSliceVisible = false;
+            if (sliceY !== null && y !== sliceY) isSliceVisible = false;
+            if (!isPointDepthVisible(adc)) isSliceVisible = false;
+
+            const hColor = getD3HeatmapColor(adc, minAdc, maxAdc, heatmapPalette as HeatmapPalette);
+
+            if (isSliceVisible) {
+              overlayColors.push(hColor.r, hColor.g, hColor.b);
+            } else {
+              overlayColors.push(0, 0, 0);
+            }
+          }
+
+          overlayGeo.setAttribute('color', new THREE.Float32BufferAttribute(overlayColors, 3));
+
+          const overlayMat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            transparent: true,
+            opacity: heatmapOpacity,
+            roughness: 0.15,
+            metalness: 0.35,
+            emissive: 0xffffff,
+            emissiveIntensity: 0.25,
+            side: THREE.DoubleSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1
+          });
+
+          const overlayMesh = new THREE.Mesh(overlayGeo, overlayMat);
+          groundGroup.add(overlayMesh);
+        }
+
         // Subtle wireframe overlay
         const wireOverlayMat = new THREE.MeshBasicMaterial({
           color: showHeatmap ? 0x000000 : 0xffffff,
@@ -714,6 +828,8 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
           const adc = gridData[idx] ?? 380;
           const phase = phaseData[idx] ?? 0;
 
+          if (!isPointDepthVisible(adc)) continue;
+
           const posX = x - halfW + 0.5;
           const posZ = y - halfL + 0.5;
           const posY = ((adc - 380) / 400) * zScale * 1.6;
@@ -721,7 +837,7 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
           positions.push(posX, posY, posZ);
 
           const col = showHeatmap
-            ? getMagneticHeatmapColor(adc, minAdc, maxAdc)
+            ? getD3HeatmapColor(adc, minAdc, maxAdc, heatmapPalette as HeatmapPalette)
             : getOkmSpectrumColor(adc, phase);
 
           colors.push(col.r, col.g, col.b);
@@ -752,11 +868,13 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
           const adc = gridData[idx] ?? 380;
           const phase = phaseData[idx] ?? 0;
 
+          if (!isPointDepthVisible(adc)) continue;
+
           const heightFactor = Math.max(0.12, Math.abs((adc - 380) / 300) * zScale + 0.2);
           const voxelGeo = new THREE.BoxGeometry(0.88, heightFactor, 0.88);
 
           const col = showHeatmap
-            ? getMagneticHeatmapColor(adc, minAdc, maxAdc)
+            ? getD3HeatmapColor(adc, minAdc, maxAdc, heatmapPalette as HeatmapPalette)
             : getOkmSpectrumColor(adc, phase);
 
           const voxelMat = new THREE.MeshStandardMaterial({
@@ -774,6 +892,68 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
           );
 
           groundGroup.add(voxelMesh);
+        }
+      }
+    }
+
+    // 3. Render 3D Illuminated Laser Depth Slice Plane if sliceZ is active
+    if (sliceZ !== null && showDepthPlane) {
+      const targetAdc = 1024 * (1 - Math.min(Math.max(sliceZ, 0), maxDepthMeters) / maxDepthMeters);
+      const normPlaneAdc = (targetAdc - 380) / 400;
+      const planeY = normPlaneAdc * zScale * 1.6;
+
+      const slicePlaneGeo = new THREE.PlaneGeometry(width * 1.12, length * 1.12);
+      slicePlaneGeo.rotateX(-Math.PI / 2);
+
+      const slicePlaneMat = new THREE.MeshStandardMaterial({
+        color: showHeatmap ? 0xff5500 : 0x00f0ff,
+        emissive: showHeatmap ? 0xff2200 : 0x0099dd,
+        emissiveIntensity: 0.5,
+        transparent: true,
+        opacity: 0.38,
+        side: THREE.DoubleSide,
+        roughness: 0.15,
+        metalness: 0.75
+      });
+
+      const slicePlaneMesh = new THREE.Mesh(slicePlaneGeo, slicePlaneMat);
+      slicePlaneMesh.position.set(0, planeY, 0);
+      groundGroup.add(slicePlaneMesh);
+
+      const planeEdges = new THREE.EdgesGeometry(slicePlaneGeo);
+      const planeLineMat = new THREE.LineBasicMaterial({
+        color: showHeatmap ? 0xffcc00 : 0x00ffff,
+        linewidth: 2,
+        transparent: true,
+        opacity: 0.85
+      });
+      const planeLineMesh = new THREE.LineSegments(planeEdges, planeLineMat);
+      planeLineMesh.position.set(0, planeY + 0.01, 0);
+      groundGroup.add(planeLineMesh);
+
+      // Target anomaly rings intersecting current depth plane
+      for (let y = 0; y < length; y++) {
+        for (let x = 0; x < width; x++) {
+          const idx = y * width + x;
+          const adc = gridData[idx] ?? 380;
+          const ptDepth = maxDepthMeters * (1 - Math.min(Math.max(adc, 0), 1024) / 1024);
+
+          if (Math.abs(ptDepth - sliceZ) <= 0.4 && (adc > 620 || adc < 250)) {
+            const rx = x - halfW + 0.5;
+            const rz = y - halfL + 0.5;
+
+            const targetRingGeo = new THREE.RingGeometry(0.25, 0.42, 24);
+            targetRingGeo.rotateX(-Math.PI / 2);
+            const targetRingMat = new THREE.MeshBasicMaterial({
+              color: adc > 620 ? 0xffd700 : 0x00f0ff,
+              side: THREE.DoubleSide,
+              transparent: true,
+              opacity: 0.95
+            });
+            const targetMesh = new THREE.Mesh(targetRingGeo, targetRingMat);
+            targetMesh.position.set(rx, planeY + 0.02, rz);
+            groundGroup.add(targetMesh);
+          }
         }
       }
     }
@@ -842,6 +1022,13 @@ export const ThreeVisualizer: React.FC<ThreeVisualizerProps> = ({
     sliceY,
     rebuildTrigger,
     showHeatmap,
+    heatmapOpacity,
+    heatmapPalette,
+    sliceZ,
+    sliceZMode,
+    depthRange,
+    showDepthPlane,
+    maxDepthMeters,
     minAdc,
     maxAdc
   ]);
