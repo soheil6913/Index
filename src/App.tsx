@@ -406,7 +406,7 @@ export default function App() {
       {/* Footer */}
       <footer className="bg-slate-900/60 border-t border-slate-800/80 py-4 text-center text-xs text-slate-500 font-mono">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div>OKM 3D VISUALIZER & GEOPHYSICAL RADAR v4.2</div>
+          <div>AURAXIS X20 — GEOPHYSICAL RADAR v4.2</div>
           <div>پشتیبانی از درایورهای مغناطیسی X20, FMG3, FLC100 و مدل هوش مصنوعی Gemini 3.6 Flash</div>
         </div>
       </footer>

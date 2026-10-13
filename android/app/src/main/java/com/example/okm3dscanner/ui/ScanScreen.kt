@@ -76,7 +76,7 @@ fun ScanScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit = {}) 
         ) {
             Column {
                 Text(
-                    text = "OKM 3D VISUALIZER",
+                    text = "AURAXIS X20",
                     color = CyberGold,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,

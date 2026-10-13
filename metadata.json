@@ -1,6 +1,8 @@
 {
-  "name": "OKM 3D Ground Scanner & Visualizer",
-  "description": "پیشرفته‌ترین سیستم اسکن سه‌بعدی زمین، رادار عمق‌سنج، حفره‌یابی و تحلیل هوشمند داده‌های ژئوفیزیک با Gemini AI",
+  "name": "AURAXIS X20",
+  "description": "سیستم فوق‌پیشرفته اسکن سه‌بعدی زمین، رادار عمق‌سنج، حفره‌یابی و تحلیل هوشمند داده‌های ژئوفیزیک با AURAXIS X20",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

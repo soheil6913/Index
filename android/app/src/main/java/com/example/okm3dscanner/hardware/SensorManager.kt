@@ -119,7 +119,7 @@ class SensorManager(private val context: Context? = null) {
         try {
             adapter.bondedDevices?.forEach { dev ->
                 val name = dev.name ?: "دستگاه ناشناس"
-                if (name.contains("OKM", ignoreCase = true) || 
+                if (name.contains("AURAXIS", ignoreCase = true) || name.contains("OKM", ignoreCase = true) || 
                     name.contains("Radar", ignoreCase = true) || 
                     name.contains("Gold", ignoreCase = true) ||
                     name.contains("HC-", ignoreCase = true)) {

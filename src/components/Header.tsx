@@ -100,7 +100,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-black tracking-wider text-amber-400 font-mono">
-                  OKM 3D VISUALIZER
+                  AURAXIS X20
                 </h1>
                 <span className="text-[10px] px-1.5 py-0.5 bg-amber-400/10 text-amber-400 border border-amber-400/20 rounded font-mono font-semibold">
                   PRO V4.2
@@ -158,7 +158,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <Smartphone className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">نصب اپلیکیشن OKM 3D روی موبایل</h3>
+                  <h3 className="text-base font-bold text-white">نصب اپلیکیشن AURAXIS X20 روی موبایل</h3>
                   <p className="text-xs text-amber-400 font-mono">نصب به صورت PWA بدون نیاز به بازار یا گوگل پلی</p>
                 </div>
               </div>
@@ -171,7 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <ol className="list-decimal list-inside space-y-1.5 text-slate-400 pr-1">
                   <li>منوی سه نقطه مرورگر (بالا سمت راست) را باز کنید.</li>
                   <li>گزینه <strong className="text-amber-400">«افزودن به صفحه اصلی» (Add to Home Screen)</strong> یا <strong className="text-amber-400">«نصب اپلیکیشن» (Install App)</strong> را انتخاب کنید.</li>
-                  <li>آیکون OKM 3D روی صفحه گوشی شما قرار می‌گیرد.</li>
+                  <li>آیکون AURAXIS X20 روی صفحه گوشی شما قرار می‌گیرد.</li>
                 </ol>
 
                 <div className="font-bold text-white border-b border-slate-800 pb-2 pt-2 flex items-center gap-2">
