@@ -6,7 +6,6 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.*
@@ -120,7 +119,11 @@ fun AppDashboard(
             when (currentTab) {
                 "scan" -> ScanScreen(viewModel = viewModel, onNavigateToAi = { currentTab = "ai" })
                 "visualizer" -> VisualizerScreen(viewModel = viewModel, onNavigateToAi = { currentTab = "ai" })
-                "map" -> MapScreen(viewModel = viewModel)
+                "map" -> MapScreen(
+                    viewModel = viewModel,
+                    onNavigateToVisualizer = { currentTab = "visualizer" },
+                    onNavigateToAi = { currentTab = "ai" }
+                )
                 "tracker" -> TrackerScreen(viewModel = viewModel)
                 "history" -> HistoryScreen(viewModel = viewModel, onLoadScan = { currentTab = "visualizer" })
                 "ai" -> AiAnalysisScreen(viewModel = viewModel)

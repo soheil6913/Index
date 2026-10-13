@@ -18,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -37,6 +36,8 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
     val viewedScan by viewModel.viewedScan.collectAsStateWithLifecycle()
     var useThreeJS by remember { mutableStateOf(true) }
     var showHeatmap by remember { mutableStateOf(false) }
+    var isHudCollapsed by remember { mutableStateOf(false) }
+
     var nativeYaw by remember { mutableStateOf(45f) }
     var nativePitch by remember { mutableStateOf(30f) }
     var nativeZoom by remember { mutableStateOf(1.0f) }
@@ -65,7 +66,7 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
 
         Box(modifier = Modifier.fillMaxSize().background(DarkBg)) {
             if (useThreeJS) {
-                // High-Performance Hardware-Accelerated ThreeJS WebGL 3D Engine
+                // Hardware-Accelerated ThreeJS WebGL 3D Engine
                 AndroidView(
                     factory = { context ->
                         WebView(context).apply {
@@ -121,7 +122,7 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
-                // Native Offline Compose Isometric 3D Engine
+                // Native Compose Isometric 3D Engine
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -150,7 +151,6 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
                         val sinPitch = sin(radPitch).toFloat()
                         val cosPitch = cos(radPitch).toFloat()
 
-                        // Function to project 3D (x, y, z) into 2D screen coordinates
                         fun project(x: Float, y: Float, z: Float): Offset {
                             val isoX = (x * cosYaw - y * sinYaw) * cellSpacing
                             val isoY = ((x * sinYaw + y * cosYaw) * sinPitch - z * cosPitch * 1.5f * nativeZScale) * cellSpacing
@@ -160,45 +160,31 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
                         val halfCols = cols / 2f
                         val halfRows = rows / 2f
 
-                        // Draw Grid & Height Terrain Mesh
                         for (r in 0 until rows - 1) {
                             for (c in 0 until cols - 1) {
                                 val idx00 = r * cols + c
                                 val idx10 = r * cols + (c + 1)
-                                val idx11 = (r + 1) * cols + (c + 1)
                                 val idx01 = (r + 1) * cols + c
+                                val idx11 = (r + 1) * cols + (c + 1)
 
-                                val v00 = (scan.gridData.getOrNull(idx00) ?: 380f)
-                                val v10 = (scan.gridData.getOrNull(idx10) ?: 380f)
-                                val v11 = (scan.gridData.getOrNull(idx11) ?: 380f)
-                                val v01 = (scan.gridData.getOrNull(idx01) ?: 380f)
+                                val v00 = scan.gridData.getOrElse(idx00) { 380f }
+                                val v10 = scan.gridData.getOrElse(idx10) { 380f }
+                                val v01 = scan.gridData.getOrElse(idx01) { 380f }
+                                val v11 = scan.gridData.getOrElse(idx11) { 380f }
 
-                                val z00 = (v00 - 380f) / 100f
-                                val z10 = (v10 - 380f) / 100f
-                                val z11 = (v11 - 380f) / 100f
-                                val z01 = (v01 - 380f) / 100f
+                                val avgVal = (v00 + v10 + v01 + v11) / 4f
+                                val normHeight = ((avgVal - 200f) / 800f).coerceIn(0f, 1f)
 
-                                val p00 = project(c - halfCols, r - halfRows, z00)
-                                val p10 = project(c + 1 - halfCols, r - halfRows, z10)
-                                val p11 = project(c + 1 - halfCols, r + 1 - halfRows, z11)
-                                val p01 = project(c - halfCols, r + 1 - halfRows, z01)
+                                val p00 = project(c - halfCols, r - halfRows, (v00 - 380f) / 200f)
+                                val p10 = project(c + 1 - halfCols, r - halfRows, (v10 - 380f) / 200f)
+                                val p11 = project(c + 1 - halfCols, r + 1 - halfRows, (v11 - 380f) / 200f)
+                                val p01 = project(c - halfCols, r + 1 - halfRows, (v01 - 380f) / 200f)
 
-                                val avgVal = (v00 + v10 + v11 + v01) / 4f
-                                val faceColor = if (showHeatmap) {
-                                    when {
-                                        avgVal > 750f -> Color(0xFFEF4444).copy(alpha = 0.85f)
-                                        avgVal > 550f -> Color(0xFFF97316).copy(alpha = 0.80f)
-                                        avgVal > 450f -> Color(0xFFEAB308).copy(alpha = 0.75f)
-                                        avgVal > 300f -> Color(0xFF10B981).copy(alpha = 0.70f)
-                                        else -> Color(0xFF4F46E5).copy(alpha = 0.80f)
-                                    }
-                                } else {
-                                    when {
-                                        avgVal > 750f -> CyberGold.copy(alpha = 0.85f)
-                                        avgVal > 550f -> Color(0xFFF59E0B).copy(alpha = 0.75f)
-                                        avgVal > 350f -> CyberCyan.copy(alpha = 0.65f)
-                                        else -> Color(0xFF3B82F6).copy(alpha = 0.75f)
-                                    }
+                                val faceColor = when {
+                                    normHeight > 0.65f -> CyberGold.copy(alpha = 0.85f)
+                                    normHeight > 0.4f -> Color(0xFF10B981).copy(alpha = 0.8f)
+                                    normHeight > 0.2f -> Color(0xFF06B6D4).copy(alpha = 0.75f)
+                                    else -> Color(0xFF3B82F6).copy(alpha = 0.75f)
                                 }
 
                                 val path = Path().apply {
@@ -217,7 +203,7 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
                 }
             }
 
-            // Top Floating Header with Engine Toggle
+            // Top Responsive Header Bar with Controls (Compact & Non-blocking)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -227,11 +213,12 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = SurfaceBg.copy(alpha = 0.9f)),
-                    shape = RoundedCornerShape(12.dp)
+                    colors = CardDefaults.cardColors(containerColor = SurfaceBg.copy(alpha = 0.92f)),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -247,44 +234,15 @@ fun VisualizerScreen(viewModel: VisualizerViewModel, onNavigateToAi: () -> Unit 
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Heatmap Toggle Chip
-                    FilterChip(
-                        selected = showHeatmap,
-                        onClick = { showHeatmap = !showHeatmap },
-                        label = { Text("هیت‌مپ", fontSize = 10.sp) },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Default.LocalFireDepartment,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFFEF4444).copy(alpha = 0.3f),
-                            selectedLabelColor = Color(0xFFEF4444),
-                            selectedLeadingIconColor = Color(0xFFEF4444),
-                            containerColor = CardBg,
-                            labelColor = Color.White
-                        )
-                    )
-
-                    // Engine Switcher (WebGL Three.js vs Native Compose)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Engine Switcher
                     FilterChip(
                         selected = useThreeJS,
                         onClick = { useThreeJS = !useThreeJS },
-                        label = { Text(if (useThreeJS) "موتور ThreeJS" else "موتور نیتیو", fontSize = 10.sp) },
-                        leadingIcon = {
-                            Icon(
-                                if (useThreeJS) Icons.Default.ViewInAr else Icons.Default.Tune,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        },
+                        label = { Text(if (useThreeJS) "WebGL 3D" else "نیتیو", fontSize = 10.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = CyberCyan.copy(alpha = 0.25f),
                             selectedLabelColor = CyberCyan,
-                            selectedLeadingIconColor = CyberCyan,
                             containerColor = CardBg,
                             labelColor = Color.White
                         )
